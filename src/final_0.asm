@@ -2,16 +2,25 @@
 ;;;;;;; TRANSMITTER SIDE (固定) ;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; ====== SOME MACROS =======
+ADCTL       EQU 0C5H
+ADCH        EQU 0C6H
+ADCL        EQU 0BEH
+P1M0        EQU 091H
+P1M1        EQU 092H
+AUXR        EQU 08EH
+; ==========================
+
 ; ===== PIN DEFINITION =====
 PIN_LED_R   EQU P1.2
 PIN_LED_G   EQU P1.1
 PIN_LED_B   EQU P1.0
 PIN_LED_OUT EQU P0
-PIN_MIC     EQU P2
+PIN_ADC     EQU P1.7
 ; ==========================
 
 ; ===== VARIABLES USED =====
-MIC_R       EQU R0  ; 紀錄上次PIN_MIC的值
+MIC_R       EQU R0  ; 紀錄上次MIC的值
 SOUND_MAGNI EQU 2FH
 TEMP        EQU R1
 ; ==========================
@@ -24,6 +33,7 @@ AJMP SETTING
 
 ORG 0050H
 SETTING:
+    ; --------- SERIAL設定 ----------
     MOV TMOD,#00100000B ; set timer 1 as mode 2 (8-bit auto reload)
     MOV TL1,#0FAH   ; timer1作為baud rate generator，
     MOV TH1,#0FAH	; 且 baud rate = 12000
@@ -36,22 +46,35 @@ SETTING:
     ; SETB EA
     ; SETB PS     ; 串列傳輸中斷優先
 
-    CLR SM2     ; 不使用一對多模式
+    CLR  SM2    ; 不使用一對多模式
     SETB SM1    ; 串列傳輸 mode 1
-    CLR SM0     ; 串列傳輸 mode 1
+    CLR  SM0    ; 串列傳輸 mode 1
 
     ; SETB TI     ; 第一次進入中斷
 
+    ; ---------- ADC設定 ------------
+    ORL P1M0,#10000000B     ; set P1.7 as input only
+    ANL P1M1,#01111111B
+
+    MOV ADCTL,#11100111B    ; ADCON SPEED1 SPEED0 ADCI  ADCS CHS2 CHS1 CHS0
+    ; ebable ADC
+    ; set to full speed (cycle = 270 clock cycles)
+    ; select P1.7 as analog input
+
+    ANL AUXR,#10111111B     ; MSB 8-bit place at ADCH[7:0]
+
+    ORL ADCTL,#00001000B    ; start ADC
+
 LOOP:
-    ACALL CALCULATE_SOUND_MAGNI
+    ACALL GET_SOUND_MAGNI
     ACALL DRIVE_LED
     MOV SBUF,SOUND_MAGNI
     ; ACALL DELAY
     AJMP LOOP
 
 ; ===== SOME FUNCTIONS =====
-CALCULATE_SOUND_MAGNI:
-    MOV A,PIN_MIC
+GET_SOUND_MAGNI:
+    MOV A,ADCH
     CLR C
     SUBB A,MIC_R
     MOV SOUND_MAGNI,A
@@ -62,7 +85,11 @@ CALCULATE_SOUND_MAGNI:
     INC A
     MOV SOUND_MAGNI,A
     FINISH1:
-    MOV MIC_R,PIN_MIC   ; 紀錄上次PIN_MIC的值
+    MOV MIC_R,ADCH      ; 紀錄上次MIC的值
+
+    ANL ADCTL,#11101111B    ; Clear ADCI
+    ORL ADCTL,#00001000B    ; Set ADCS
+
     RET
 
 DRIVE_LED:

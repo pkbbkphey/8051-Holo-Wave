@@ -1,0 +1,258 @@
+A51 MACRO ASSEMBLER  FINAL_DEV1_0                                                         06/12/2024 15:18:02 PAGE     1
+
+
+MACRO ASSEMBLER A51 V8.01
+OBJECT MODULE PLACED IN .\final_dev1_0.obj
+ASSEMBLER INVOKED BY: C:\Keil\C51\BIN\A51.EXE ..\final_dev1_0.asm SET(SMALL) DEBUG OBJECT(.\final_dev1_0.obj) EP
+
+LOC  OBJ            LINE     SOURCE
+
+                       1     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       2     ;;;;;;; RECEIVER SIDE (旋轉LED) ;;;;;;;
+                       3     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       4     
+                       5     ; NOTICE : This code is dedicated
+                       6     ;   for STC 15F2K32S2 micro controller
+                       7     
+                       8     ; ===== DATA MEMORY DISTRIBUTION =====
+                       9     ;  ADDRESS       FUNCTION
+                      10     ; 000H~007H     registers
+                      11     ; 008H~01FH     stack
+                      12     ; 020H~07FH
+                      13     ; 080H~0FFH     存過去音訊資料(128筆)
+                      14     ; ====================================
+                      15     
+                      16     ; ===== PIN DEFINITION =====
+  00C0                17     P4          EQU 0C0H
+                      18     ; ==========================
+                      19     
+                      20     ; ===== VARIABLES USED =====
+  REG                 21     TEMP        EQU R2  ; 臨時使用的變數
+  REG                 22     TEMP1       EQU R3
+  REG                 23     OPTR        EQU R0  ; OLD DATA POINTER
+  0000                24     OPTR_       EQU 00H ; OLD DATA POINTER
+  REG                 25     NPTR        EQU R1  ; NEW DATA POINTER
+                      26     ; NDATA       EQU R2  ; NEW DATA
+                      27     ; ==========================
+                      28     
+0000                  29     ORG 0000H
+0000 0150             30     AJMP SETTING
+                      31     
+0003                  32     ORG 0003H  ; INT0
+0003 01B7             33     AJMP ROTATION_INT
+                      34     
+0023                  35     ORG 0023H
+0023 01A6             36     AJMP SERIAL_INT
+                      37     
+0050                  38     ORG 0050H
+0050                  39     SETTING:
+                      40         ; CLR S1_S0
+                      41         ; CLR S1_S1
+0050 53A23F           42         ANL 0A2H,#00111111B
+                      43         ; CLR Tx_Rx
+0053 5397EF           44         ANL 097H,#11101111B
+                      45     
+0056 538EDE           46         ANL 08EH,#11011110B ; The clock source of Timer 1 is SYSclk/12.
+                      47                             ; Select Timer 1 as the baud-rate generator of UART1
+                      48     
+0059 758920           49         MOV TMOD,#00100000B ; set timer 1 as mode 2 (8-bit auto reload)
+005C 758BFA           50         MOV TL1,#0FAH   ; timer1作為baud rate generator，
+005F 758DFA           51         MOV TH1,#0FAH       ; 且 baud rate = 12000
+0062 438780           52         ORL PCON,#80H   ; SMOD = 1 (timer1頻率除以二)
+0065 D28E             53         SETB TR1        ; timer 1 run
+                      54     
+0067 D2AC             55         SETB ES             ; enable串列傳輸中斷
+                      56         ; SETB PS   ; 串列傳輸中斷優先
+0069 C299             57         CLR TI      ; 清空串列傳輸中斷旗標
+006B C298             58         CLR RI      ; 清空串列傳輸中斷旗標
+A51 MACRO ASSEMBLER  FINAL_DEV1_0                                                         06/12/2024 15:18:02 PAGE     2
+
+                      59     
+006D D2A8             60         SETB EX0    ; enable INT0
+006F D2B8             61         SETB PX0    ; INT0中斷優先
+0071 D288             62         SETB IT0    ; INT0設為負緣觸發
+0073 C289             63         CLR IE0     ; 清空INT0中斷旗標
+                      64     
+0075 D2AF             65         SETB EA
+                      66     
+                      67     
+0077 C29D             68         CLR SM2     ; 不使用一對多模式
+0079 D29E             69         SETB SM1    ; 串列傳輸 mode 1
+007B C29F             70         CLR SM0     ; 串列傳輸 mode 1
+                      71     
+007D D29C             72         SETB REN    ; receive enable
+                      73     
+007F C297             74         CLR P1.7
+0081 7980             75         MOV NPTR,#080H
+                      76     
+0083                  77     LOOP:
+                      78         ; vvvvvvvv測試用vvvvvvvv
+                      79         ; MOV P0,P3
+                      80         ; MOV C,TI
+                      81         ; MOV P4.6,C
+                      82         ; MOV C,RI
+                      83         ; MOV P4.7,C
+                      84         ; ^^^^^^^^^^^^^^^^^^^^^
+                      85         ; ACALL DISPLAY_NPTR
+0083 0183             86         AJMP LOOP
+                      87     
+                      88     ; ===== SOME FUNCTIONS =====
+0085                  89     DISPLAY_OPTR:
+0085 E4               90         CLR A
+0086 E6               91         MOV A,@OPTR
+0087 5478             92         ANL A,#01111000B  ; 以OPTR指向的資料的.6~.3作為INDEX
+0089 03               93         RR A
+008A 03               94         RR A
+008B 03               95         RR A
+008C 75F002           96         MOV B,#2
+008F A4               97         MUL AB
+0090 FA               98         MOV TEMP,A
+                      99     
+                     100         ; PUSH DPL
+                     101         ; PUSH DPH
+0091 9000CF          102         MOV DPTR,#MAGNI_VISUALIZE
+                     103     
+0094 93              104         MOVC A,@A+DPTR
+0095 F5A0            105         MOV P2,A
+0097 EA              106         MOV A,TEMP
+0098 04              107         INC A
+0099 93              108         MOVC A,@A+DPTR
+009A F5C0            109         MOV P4,A
+                     110     
+                     111         ; POP DPH
+                     112         ; POP DPL
+009C 22              113         RET
+                     114     
+009D                 115     DELAY: 
+009D 7F0A            116         MOV R7,#10 
+009F                 117     DELAY1: 
+009F 7E2D            118         MOV R6,#45
+00A1                 119     DELAY2: 
+00A1 DEFE            120         DJNZ R6,DELAY2 
+00A3 DFFA            121         DJNZ R7,DELAY1 
+00A5 22              122         RET
+                     123     
+                     124     ; ===== INTERRUPT FUNCTIONS =====
+A51 MACRO ASSEMBLER  FINAL_DEV1_0                                                         06/12/2024 15:18:02 PAGE     3
+
+00A6                 125     SERIAL_INT:
+00A6 B9FF04          126         CJNE NPTR,#0FFH,INC_NPTR
+00A9 7980            127         MOV NPTR,#080H
+00AB 8001            128         SJMP INSERT_NEW
+00AD                 129         INC_NPTR:
+00AD 09              130         INC NPTR
+                     131     
+00AE                 132         INSERT_NEW:
+00AE A799            133         MOV @NPTR,SBUF
+00B0 C299            134         CLR TI
+00B2 C298            135         CLR RI
+00B4 B297            136         CPL P1.7
+00B6 32              137         RETI
+                     138     
+00B7                 139     ROTATION_INT:
+00B7 B295            140         CPL P1.5
+                     141     
+00B9 E9              142         MOV A,NPTR  ; 取樣NPTR
+00BA F8              143         MOV OPTR,A
+00BB 08              144         INC OPTR    ; 從最舊的資料開始顯示
+                     145     
+00BC 7B80            146         MOV TEMP1,#128
+                     147     
+00BE                 148         DISPLAY_LOOP:
+00BE B8FF04          149             CJNE OPTR,#0FFH,INC_OPTR
+00C1 7880            150             MOV OPTR,#080H
+00C3 8001            151             SJMP CALL_DISPLAY_OPTR
+00C5                 152             INC_OPTR:
+00C5 08              153             INC OPTR
+00C6                 154             CALL_DISPLAY_OPTR:
+00C6 1185            155             ACALL DISPLAY_OPTR
+00C8 119D            156             ACALL DELAY
+00CA DBF2            157         DJNZ TEMP1,DISPLAY_LOOP
+                     158     
+00CC B295            159         CPL P1.5
+00CE 32              160         RETI
+                     161     
+                     162     ; ===== TABLES =====
+00CF                 163     MAGNI_VISUALIZE:
+00CF FF7F            164         DB 11111111B, 01111111B
+00D1 FF3F            165         DB 11111111B, 00111111B
+00D3 FF1F            166         DB 11111111B, 00011111B
+00D5 FF0F            167         DB 11111111B, 00001111B
+00D7 FF07            168         DB 11111111B, 00000111B
+00D9 FF03            169         DB 11111111B, 00000011B
+00DB FF01            170         DB 11111111B, 00000001B
+00DD FF00            171         DB 11111111B, 00000000B
+                     172     
+00DF 7F00            173         DB 01111111B, 00000000B
+00E1 3F00            174         DB 00111111B, 00000000B
+00E3 1F00            175         DB 00011111B, 00000000B
+00E5 0F00            176         DB 00001111B, 00000000B
+00E7 0700            177         DB 00000111B, 00000000B
+00E9 0300            178         DB 00000011B, 00000000B
+00EB 0100            179         DB 00000001B, 00000000B
+00ED 0000            180         DB 00000000B, 00000000B
+                     181     
+                     182         ; DB 01010101B, 01010101B
+                     183         ; DB 01010101B, 01010101B
+                     184         ; DB 01010101B, 01010101B
+                     185         ; DB 01010101B, 01010101B
+                     186         ; DB 01010101B, 01010101B
+                     187         ; DB 01010101B, 01010101B
+                     188         ; DB 01010101B, 01010101B
+                     189         ; DB 01010101B, 01010101B
+*** WARNING #A41 IN 189 (..\final_dev1_0.asm, LINE 189): MISSING 'END' STATEMENT
+A51 MACRO ASSEMBLER  FINAL_DEV1_0                                                         06/12/2024 15:18:02 PAGE     4
+
+SYMBOL TABLE LISTING
+------ ----- -------
+
+
+N A M E             T Y P E  V A L U E   ATTRIBUTES
+
+B. . . . . . . . .  D ADDR   00F0H   A   
+CALL_DISPLAY_OPTR.  C ADDR   00C6H   A   
+DELAY. . . . . . .  C ADDR   009DH   A   
+DELAY1 . . . . . .  C ADDR   009FH   A   
+DELAY2 . . . . . .  C ADDR   00A1H   A   
+DISPLAY_LOOP . . .  C ADDR   00BEH   A   
+DISPLAY_OPTR . . .  C ADDR   0085H   A   
+EA . . . . . . . .  B ADDR   00A8H.7 A   
+ES . . . . . . . .  B ADDR   00A8H.4 A   
+EX0. . . . . . . .  B ADDR   00A8H.0 A   
+IE0. . . . . . . .  B ADDR   0088H.1 A   
+INC_NPTR . . . . .  C ADDR   00ADH   A   
+INC_OPTR . . . . .  C ADDR   00C5H   A   
+INSERT_NEW . . . .  C ADDR   00AEH   A   
+IT0. . . . . . . .  B ADDR   0088H.0 A   
+LOOP . . . . . . .  C ADDR   0083H   A   
+MAGNI_VISUALIZE. .  C ADDR   00CFH   A   
+NPTR . . . . . . .    REG    R1          
+OPTR . . . . . . .    REG    R0          
+OPTR_. . . . . . .  N NUMB   0000H   A   
+P1 . . . . . . . .  D ADDR   0090H   A   
+P2 . . . . . . . .  D ADDR   00A0H   A   
+P4 . . . . . . . .  N NUMB   00C0H   A   
+PCON . . . . . . .  D ADDR   0087H   A   
+PX0. . . . . . . .  B ADDR   00B8H.0 A   
+REN. . . . . . . .  B ADDR   0098H.4 A   
+RI . . . . . . . .  B ADDR   0098H.0 A   
+ROTATION_INT . . .  C ADDR   00B7H   A   
+SBUF . . . . . . .  D ADDR   0099H   A   
+SERIAL_INT . . . .  C ADDR   00A6H   A   
+SETTING. . . . . .  C ADDR   0050H   A   
+SM0. . . . . . . .  B ADDR   0098H.7 A   
+SM1. . . . . . . .  B ADDR   0098H.6 A   
+SM2. . . . . . . .  B ADDR   0098H.5 A   
+TEMP . . . . . . .    REG    R2          
+TEMP1. . . . . . .    REG    R3          
+TH1. . . . . . . .  D ADDR   008DH   A   
+TI . . . . . . . .  B ADDR   0098H.1 A   
+TL1. . . . . . . .  D ADDR   008BH   A   
+TMOD . . . . . . .  D ADDR   0089H   A   
+TR1. . . . . . . .  B ADDR   0088H.6 A   
+
+
+REGISTER BANK(S) USED: 0 
+
+
+ASSEMBLY COMPLETE.  1 WARNING(S), 0 ERROR(S)

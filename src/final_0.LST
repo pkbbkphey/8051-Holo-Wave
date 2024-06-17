@@ -1,0 +1,204 @@
+A51 MACRO ASSEMBLER  FINAL_0                                                              06/12/2024 19:13:36 PAGE     1
+
+
+MACRO ASSEMBLER A51 V8.01
+OBJECT MODULE PLACED IN .\final_0.obj
+ASSEMBLER INVOKED BY: C:\Keil\C51\BIN\A51.EXE ..\final_0.asm SET(SMALL) DEBUG OBJECT(.\final_0.obj) EP
+
+LOC  OBJ            LINE     SOURCE
+
+                       1     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       2     ;;;;;;; TRANSMITTER SIDE (固定) ;;;;;;;
+                       3     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                       4     
+                       5     ; ===== PIN DEFINITION =====
+  0092                 6     PIN_LED_R   EQU P1.2
+  0091                 7     PIN_LED_G   EQU P1.1
+  0090                 8     PIN_LED_B   EQU P1.0
+  0080                 9     PIN_LED_OUT EQU P0
+  00A0                10     PIN_MIC     EQU P2
+                      11     ; ==========================
+                      12     
+                      13     ; ===== VARIABLES USED =====
+  REG                 14     MIC_R       EQU R0  ; 紀錄上次PIN_MIC的值
+  002F                15     SOUND_MAGNI EQU 2FH
+  REG                 16     TEMP        EQU R1
+                      17     ; ==========================
+                      18     
+0000                  19     ORG 0000H
+0000 0150             20     AJMP SETTING
+                      21     
+                      22     ; ORG 0023H
+                      23     ; AJMP SERIAL_INT
+                      24     
+0050                  25     ORG 0050H
+0050                  26     SETTING:
+0050 758920           27         MOV TMOD,#00100000B ; set timer 1 as mode 2 (8-bit auto reload)
+0053 758BFA           28         MOV TL1,#0FAH   ; timer1作為baud rate generator，
+0056 758DFA           29         MOV TH1,#0FAH       ; 且 baud rate = 12000
+0059 438780           30         ORL PCON,#80H   ; SMOD = 1 (timer1頻率除以二)
+005C D28E             31         SETB TR1        ; timer 1 run
+                      32     
+                      33         ; SETB ES           ; enable串列傳輸中斷
+                      34         ; CLR TI      ; 清空串列傳輸中斷旗標
+                      35         ; CLR RI      ; 清空串列傳輸中斷旗標
+                      36         ; SETB EA
+                      37         ; SETB PS     ; 串列傳輸中斷優先
+                      38     
+005E C29D             39         CLR SM2     ; 不使用一對多模式
+0060 D29E             40         SETB SM1    ; 串列傳輸 mode 1
+0062 C29F             41         CLR SM0     ; 串列傳輸 mode 1
+                      42     
+                      43         ; SETB TI     ; 第一次進入中斷
+                      44     
+0064                  45     LOOP:
+0064 116D             46         ACALL CALCULATE_SOUND_MAGNI
+0066 117F             47         ACALL DRIVE_LED
+0068 852F99           48         MOV SBUF,SOUND_MAGNI
+                      49         ; ACALL DELAY
+006B 0164             50         AJMP LOOP
+                      51     
+                      52     ; ===== SOME FUNCTIONS =====
+006D                  53     CALCULATE_SOUND_MAGNI:
+006D E5A0             54         MOV A,PIN_MIC
+006F C3               55         CLR C
+0070 98               56         SUBB A,MIC_R
+0071 F52F             57         MOV SOUND_MAGNI,A
+0073 207F02           58         JB SOUND_MAGNI.7,NEG_SOUND
+A51 MACRO ASSEMBLER  FINAL_0                                                              06/12/2024 19:13:36 PAGE     2
+
+0076 8004             59         SJMP FINISH1
+0078                  60         NEG_SOUND:
+0078 F4               61         CPL A
+0079 04               62         INC A
+007A F52F             63         MOV SOUND_MAGNI,A
+007C                  64         FINISH1:
+007C A8A0             65         MOV MIC_R,PIN_MIC   ; 紀錄上次PIN_MIC的值
+007E 22               66         RET
+                      67     
+007F                  68     DRIVE_LED:
+                      69         ; CLR PIN_LED_R
+                      70         ; SETB PIN_LED_B
+                      71         ; SETB PIN_LED_G
+                      72         ; MOV PIN_LED_OUT, SOUND_MAGNI
+007F 75F010           73         MOV B,#16
+0082 E52F             74         MOV A,SOUND_MAGNI
+0084 84               75         DIV AB
+0085 F9               76         MOV TEMP,A
+                      77         ; MOV A,B
+                      78         ; CJNE A,#0,MAG_OV
+                      79         ; SJMP DRIVE_RGB
+                      80         ; MAG_OV:
+                      81         ; MOV TEMP,#7
+                      82     
+0086                  83         DRIVE_RGB:
+0086 C292             84         CLR PIN_LED_R
+0088 D291             85         SETB PIN_LED_G
+008A D290             86         SETB PIN_LED_B
+008C 9000C1           87         MOV DPTR,#MAGNI_LED_R
+008F E9               88         MOV A,TEMP
+0090 93               89         MOVC A,@A+DPTR
+0091 F580             90         MOV PIN_LED_OUT,A
+0093 11B4             91         ACALL DELAY
+                      92     
+0095 D292             93         SETB PIN_LED_R
+0097 C291             94         CLR PIN_LED_G
+0099 D290             95         SETB PIN_LED_B
+009B 9000C9           96         MOV DPTR,#MAGNI_LED_G
+009E E9               97         MOV A,TEMP
+009F 93               98         MOVC A,@A+DPTR
+00A0 F580             99         MOV PIN_LED_OUT,A
+00A2 11B4            100         ACALL DELAY
+                     101     
+00A4 D292            102         SETB PIN_LED_R
+00A6 D291            103         SETB PIN_LED_G
+00A8 C290            104         CLR PIN_LED_B
+00AA 9000D1          105         MOV DPTR,#MAGNI_LED_B
+00AD E9              106         MOV A,TEMP
+00AE 93              107         MOVC A,@A+DPTR
+00AF F580            108         MOV PIN_LED_OUT,A
+00B1 11B4            109         ACALL DELAY
+                     110     
+00B3 22              111         RET
+                     112     
+00B4                 113     DELAY:
+00B4 7DFF            114             MOV R5,#0FFH
+00B6                 115     DELAY1:
+00B6 7E0A            116             MOV R6,#0AH    ; 01FH
+00B8                 117     DELAY2:
+00B8 7F01            118             MOV R7,#01H
+00BA                 119     DELAY3:
+00BA DFFE            120             DJNZ R7,DELAY3
+00BC DEFA            121             DJNZ R6,DELAY2
+00BE DDF6            122             DJNZ R5,DELAY1
+00C0 22              123             RET
+                     124     
+A51 MACRO ASSEMBLER  FINAL_0                                                              06/12/2024 19:13:36 PAGE     3
+
+                     125     ; ===== INTERRUPT FUNCTIONS =====
+                     126     ; SERIAL_INT:
+                     127         ; SETB P3.7
+                     128         ; CLR TI
+                     129         ; MOV SBUF,SOUND_MAGNI
+                     130         ; RETI
+                     131     
+                     132     ; ===== TABLES =====
+00C1                 133     MAGNI_LED_R:
+00C1 FEFCFCFC        134         DB 11111110B, 11111100B, 11111100B, 11111100B
+00C5 FCFCBC3C        135         DB 11111100B, 11111100B, 10111100B, 00111100B
+00C9                 136     MAGNI_LED_G:
+00C9 FFFFFBF3        137         DB 11111111B, 11111111B, 11111011B, 11110011B
+00CD F3D39313        138         DB 11110011B, 11010011B, 10010011B, 00010011B
+00D1                 139     MAGNI_LED_B:
+00D1 FFFFFFFF        140         DB 11111111B, 11111111B, 11111111B, 11111111B
+00D5 EFCF8F0F        141         DB 11101111B, 11001111B, 10001111B, 00001111B
+*** WARNING #A41 IN 141 (..\final_0.asm, LINE 141): MISSING 'END' STATEMENT
+A51 MACRO ASSEMBLER  FINAL_0                                                              06/12/2024 19:13:36 PAGE     4
+
+SYMBOL TABLE LISTING
+------ ----- -------
+
+
+N A M E                T Y P E  V A L U E   ATTRIBUTES
+
+B . . . . . . . . . .  D ADDR   00F0H   A   
+CALCULATE_SOUND_MAGNI  C ADDR   006DH   A   
+DELAY . . . . . . . .  C ADDR   00B4H   A   
+DELAY1. . . . . . . .  C ADDR   00B6H   A   
+DELAY2. . . . . . . .  C ADDR   00B8H   A   
+DELAY3. . . . . . . .  C ADDR   00BAH   A   
+DRIVE_LED . . . . . .  C ADDR   007FH   A   
+DRIVE_RGB . . . . . .  C ADDR   0086H   A   
+FINISH1 . . . . . . .  C ADDR   007CH   A   
+LOOP. . . . . . . . .  C ADDR   0064H   A   
+MAGNI_LED_B . . . . .  C ADDR   00D1H   A   
+MAGNI_LED_G . . . . .  C ADDR   00C9H   A   
+MAGNI_LED_R . . . . .  C ADDR   00C1H   A   
+MIC_R . . . . . . . .    REG    R0          
+NEG_SOUND . . . . . .  C ADDR   0078H   A   
+P0. . . . . . . . . .  D ADDR   0080H   A   
+P1. . . . . . . . . .  D ADDR   0090H   A   
+P2. . . . . . . . . .  D ADDR   00A0H   A   
+PCON. . . . . . . . .  D ADDR   0087H   A   
+PIN_LED_B . . . . . .  B ADDR   0090H.0 A   
+PIN_LED_G . . . . . .  B ADDR   0090H.1 A   
+PIN_LED_OUT . . . . .  D ADDR   0080H   A   
+PIN_LED_R . . . . . .  B ADDR   0090H.2 A   
+PIN_MIC . . . . . . .  D ADDR   00A0H   A   
+SBUF. . . . . . . . .  D ADDR   0099H   A   
+SETTING . . . . . . .  C ADDR   0050H   A   
+SM0 . . . . . . . . .  B ADDR   0098H.7 A   
+SM1 . . . . . . . . .  B ADDR   0098H.6 A   
+SM2 . . . . . . . . .  B ADDR   0098H.5 A   
+SOUND_MAGNI . . . . .  N NUMB   002FH   A   
+TEMP. . . . . . . . .    REG    R1          
+TH1 . . . . . . . . .  D ADDR   008DH   A   
+TL1 . . . . . . . . .  D ADDR   008BH   A   
+TMOD. . . . . . . . .  D ADDR   0089H   A   
+TR1 . . . . . . . . .  B ADDR   0088H.6 A   
+
+
+REGISTER BANK(S) USED: 0 
+
+
+ASSEMBLY COMPLETE.  1 WARNING(S), 0 ERROR(S)

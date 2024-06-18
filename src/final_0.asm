@@ -75,6 +75,13 @@ LOOP:
 ; ===== SOME FUNCTIONS =====
 GET_SOUND_MAGNI:
     MOV A,ADCH
+    MOV B,ADCL
+    MOV C,B.1
+    RLC A
+    MOV C,B.0
+    RLC A       ; 取ADC[7:0] (低八位)
+    MOV TEMP,A
+
     CLR C
     SUBB A,MIC_R
     MOV SOUND_MAGNI,A
@@ -85,7 +92,8 @@ GET_SOUND_MAGNI:
     INC A
     MOV SOUND_MAGNI,A
     FINISH1:
-    MOV MIC_R,ADCH      ; 紀錄上次MIC的值
+    MOV A,TEMP
+    MOV MIC_R,A         ; 紀錄上次MIC的值
 
     ANL ADCTL,#11101111B    ; Clear ADCI
     ORL ADCTL,#00001000B    ; Set ADCS

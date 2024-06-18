@@ -53,12 +53,12 @@ SETTING:
     SETB TR1        ; timer 1 run
 
     SETB ES		; enable串列傳輸中斷
-    ; SETB PS   ; 串列傳輸中斷優先
+    SETB PS   ; 串列傳輸中斷優先
     CLR TI      ; 清空串列傳輸中斷旗標
     CLR RI      ; 清空串列傳輸中斷旗標
 
     SETB EX0    ; enable INT0
-    SETB PX0    ; INT0中斷優先
+    ; SETB PX0    ; INT0中斷優先
     SETB IT0    ; INT0設為負緣觸發
     CLR IE0     ; 清空INT0中斷旗標
 
@@ -71,7 +71,6 @@ SETTING:
 
     SETB REN    ; receive enable
 
-    CLR P1.7
     MOV NPTR,#080H
 
 LOOP:
@@ -97,8 +96,6 @@ DISPLAY_OPTR:
     MUL AB
     MOV TEMP,A
 
-    ; PUSH DPL
-    ; PUSH DPH
     MOV DPTR,#MAGNI_VISUALIZE
 
     MOVC A,@A+DPTR
@@ -108,12 +105,31 @@ DISPLAY_OPTR:
     MOVC A,@A+DPTR
     MOV P4,A
 
-    ; POP DPH
-    ; POP DPL
+    RET
+
+DISPLAY_NPTR_INNER:
+    CLR A
+    MOV A,@NPTR
+    ANL A,#01111000B  ; 以NPTR指向的資料的.6~.3作為INDEX
+    RR A
+    RR A
+    RR A
+    MOV B,#2
+    MUL AB
+    MOV TEMP,A
+
+    MOV DPTR,#MAGNI_VISUALIZE
+
+    MOVC A,@A+DPTR
+    MOV P0,A
+    MOV A,TEMP
+    INC A
+    MOVC A,@A+DPTR
+    MOV P1,A
     RET
 
 DELAY: 
-    MOV R7,#10 
+    MOV R7,#7
 DELAY1: 
     MOV R6,#45
 DELAY2: 
@@ -131,13 +147,16 @@ SERIAL_INT:
 
     INSERT_NEW:
     MOV @NPTR,SBUF
+
+    ACALL DISPLAY_NPTR_INNER
+
     CLR TI
     CLR RI
-    CPL P1.7
+    ; CPL P1.7
     RETI
 
 ROTATION_INT:
-    CPL P1.5
+    ; CPL P1.5
 
     MOV A,NPTR  ; 取樣NPTR
     MOV OPTR,A
@@ -156,7 +175,7 @@ ROTATION_INT:
         ACALL DELAY
     DJNZ TEMP1,DISPLAY_LOOP
 
-    CPL P1.5
+    ; CPL P1.5
     RETI
 
 ; ===== TABLES =====

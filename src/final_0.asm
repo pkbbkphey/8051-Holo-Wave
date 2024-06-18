@@ -2,6 +2,15 @@
 ;;;;;;; TRANSMITTER SIDE (固定) ;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; ===== DATA MEMORY DISTRIBUTION =====
+;  ADDRESS       FUNCTION
+; 000H~007H     registers
+; 008H~01FH     stack
+; 020H~07FH     *見VARIABLES USED
+; 080H~089H     存過去音訊資料(10筆)
+; 08AH~0FFH     
+; ====================================
+
 ; ====== SOME MACROS =======
 ADCTL       EQU 0C5H
 ADCH        EQU 0C6H
@@ -17,12 +26,15 @@ PIN_LED_G   EQU P1.1
 PIN_LED_B   EQU P1.0
 PIN_LED_OUT EQU P0
 PIN_ADC     EQU P1.7
+PIN_SWH_MD  EQU P1.3    ; 聲波顯示模式選擇指撥開關
 ; ==========================
 
 ; ===== VARIABLES USED =====
-MIC_R       EQU R0  ; 紀錄上次MIC的值
-SOUND_MAGNI EQU 2FH
-TEMP        EQU R1
+MIC_R       EQU R3      ; 紀錄上次MIC的值
+SOUND_MAGNI EQU 02FH
+OPTR        EQU R0      ; 聲音顯示模式2用到，用於access舊聲音資料
+NPTR        EQU R1      ; 聲音顯示模式2用到，指向最新聲音資料的位置
+TEMP        EQU 02EH
 ; ==========================
 
 ORG 0000H
@@ -65,6 +77,9 @@ SETTING:
 
     ORL ADCTL,#00001000B    ; start ADC
 
+    ; ---------- 其他設定 -----------
+    MOV NPTR,#080H
+
 LOOP:
     ACALL GET_SOUND_MAGNI
     ACALL DRIVE_LED
@@ -73,7 +88,7 @@ LOOP:
     AJMP LOOP
 
 ; ===== SOME FUNCTIONS =====
-GET_SOUND_MAGNI:
+GET_SOUND_MAGNI:    ; 讀取麥克風類比數值，並對時間微分，取得聲音強度
     MOV A,ADCH
     MOV B,ADCL
     MOV C,B.1
@@ -86,15 +101,44 @@ GET_SOUND_MAGNI:
     SUBB A,MIC_R
     MOV SOUND_MAGNI,A
     JB SOUND_MAGNI.7,NEG_SOUND
-    SJMP FINISH1
+    SJMP RECORD_MIC
     NEG_SOUND:
     CPL A
     INC A
     MOV SOUND_MAGNI,A
-    FINISH1:
+    RECORD_MIC:
     MOV A,TEMP
     MOV MIC_R,A         ; 紀錄上次MIC的值
 
+    MODE_PICK:
+    JB PIN_SWH_MD,MODE2
+    AJMP ADC_RST        ; 聲音顯示模式1：SOUND_MAGNI為及時的聲音強度
+
+    MODE2:              ; 聲音顯示模式2：SOUND_MAGNI為前10次聲音強度最大值
+    MOV @NPTR,SOUND_MAGNI   ; 將當前聲音強度放入資料庫中
+    CJNE NPTR,#089H,INC_NPTR
+    MOV NPTR,#080H
+    SJMP FIND_MAX
+    INC_NPTR:
+    INC NPTR
+
+    FIND_MAX:
+    MOV TEMP,#0         ; TEMP用於紀錄最大值
+    MOV OPTR,#080H
+    SEARCH_LOOP:
+        MOV A,TEMP
+        CLR CY
+        SUBB A,@OPTR
+        JB CY,NEW_MAX   ; 若@OPTR大於TEMP，則代表@OPTR是新的最大值
+        SJMP NXT_SRCH_LOOP
+        NEW_MAX:
+        MOV TEMP,@OPTR
+        NXT_SRCH_LOOP:
+    INC OPTR
+    CJNE OPTR,#08AH,SEARCH_LOOP
+    MOV SOUND_MAGNI,TEMP    ; 將前10筆資料最大值作為輸出
+
+    ADC_RST:
     ANL ADCTL,#11101111B    ; Clear ADCI
     ORL ADCTL,#00001000B    ; Set ADCS
 

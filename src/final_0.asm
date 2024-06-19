@@ -78,7 +78,7 @@ SETTING:
     SETB SM1    ; 串列傳輸 mode 1
     CLR  SM0    ; 串列傳輸 mode 1
 
-    ; SETB TI     ; 第一次進入中斷
+    SETB TI     ; 第一次進入中斷
 
     ; ----------- T0設定 ------------
     ; TMOD = #00100001B => set timer 0 as mode 1 (16-bit)

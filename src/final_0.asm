@@ -27,6 +27,10 @@ PIN_LED_B   EQU P1.0
 PIN_LED_OUT EQU P0
 PIN_ADC     EQU P1.7
 PIN_SWH_MD  EQU P1.3    ; 聲波顯示模式選擇指撥開關
+PIN_LCM_D   EQU P2
+PIN_LCM_RS  EQU P3.7
+PIN_LCM_RW  EQU P3.6
+PIN_LCM_EN  EQU P3.5
 ; ==========================
 
 ; ===== VARIABLES USED =====
@@ -35,6 +39,9 @@ SOUND_MAGNI EQU 02FH
 OPTR        EQU R0      ; 聲音顯示模式2用到，用於access舊聲音資料
 NPTR        EQU R1      ; 聲音顯示模式2用到，指向最新聲音資料的位置
 TEMP        EQU 02EH
+SWH_MD_R    EQU 02DH.7  ; 紀錄上次 PIN_SWH_MD
+SWH_MD_C    EQU 02DH.6  ; Capture PIN_SWH_MD
+LCM_CTR     EQU R2      ; DRIVE_LCM的呼叫次數
 ; ==========================
 
 ORG 0000H
@@ -77,12 +84,55 @@ SETTING:
 
     ORL ADCTL,#00001000B    ; start ADC
 
+    ; ---------- LCM設定 ------------
+    ACALL DELAY
+    MOV A,#00111011B    ; DL=1(資料8bit), N=1(兩行顯示), F=0(5*7點矩陣字型)
+    ACALL COMMAND
+
+    MOV A,#00001100B    ; D=1(DD RAM顯示),C=0(CURSOR不顯示),B=0(CURSOR不閃爍)
+    ACALL COMMAND
+
+    MOV A,#1            ; 清除DD RAM
+    ACALL COMMAND
+
+    MOV A,#10000000B    ; 將AC指定給DD RAM用，且AC設為0
+    ACALL COMMAND
+    ACALL DELAY
+    MOV DPTR,#LCM_FONT_MODE
+    CLR A
+    MOVC A,@A+DPTR
+    LCM_LOOP_MODE:
+    ACALL SDATA
+    INC DPTR
+    CLR A
+    MOVC A,@A+DPTR
+    CJNE A,#0,LCM_LOOP_MODE
+
+    MOV A,#11000100B    ; AC指向第二行第5個字
+    ACALL COMMAND
+    ACALL DELAY
+    MOV DPTR,#LCM_FONT_dB
+    CLR A
+    MOVC A,@A+DPTR
+    LCM_LOOP_dB:
+    ACALL SDATA
+    INC DPTR
+    CLR A
+    MOVC A,@A+DPTR
+    CJNE A,#0,LCM_LOOP_dB
+
+    MOV LCM_CTR,#2
+    MOV C,PIN_SWH_MD
+    CPL C               ; 使LCM初次進到DRIVE_LCM會顯示MODE的部分
+    MOV SWH_MD_R,C
+
     ; ---------- 其他設定 -----------
     MOV NPTR,#080H
 
 LOOP:
     ACALL GET_SOUND_MAGNI
     ACALL DRIVE_LED
+    ACALL DRIVE_LCM
     MOV SBUF,SOUND_MAGNI
     ; ACALL DELAY
     AJMP LOOP
@@ -189,6 +239,91 @@ DRIVE_LED:
 
     RET
 
+DRIVE_LCM:
+    MOV C,PIN_SWH_MD     ; Capture PIN_SWH_MD
+    MOV SWH_MD_C,C
+    JB SWH_MD_C,SWH_MD_IS1      ; 檢查SWH_MD_C與SWH_MD_R使否相同
+    SWH_MD_IS0:
+    JNB SWH_MD_R,FINISH_LCM_MD
+    SJMP SWH_MD_CHANGE
+    SWH_MD_IS1:
+    JB SWH_MD_R,FINISH_LCM_MD
+    SWH_MD_CHANGE:
+
+    MOV A,#10000100B  ; AC指向第一行第5個字
+    ACALL COMMAND
+    JB SWH_MD_C,DISP_M2
+    DISP_M1:
+    MOV DPTR,#LCM_FONT_MODE1
+    CLR A
+    MOVC A,@A+DPTR
+    LCM_LOOP_MODE1:
+    ACALL SDATA
+    INC DPTR
+    CLR A
+    MOVC A,@A+DPTR
+    CJNE A,#0,LCM_LOOP_MODE1
+    SJMP FINISH_LCM_MD
+    DISP_M2:
+    MOV DPTR,#LCM_FONT_MODE2
+    CLR A
+    MOVC A,@A+DPTR
+    LCM_LOOP_MODE2:
+    ACALL SDATA
+    INC DPTR
+    CLR A
+    MOVC A,@A+DPTR
+    CJNE A,#0,LCM_LOOP_MODE2
+
+    FINISH_LCM_MD:
+    MOV C,SWH_MD_C
+    MOV SWH_MD_R,C
+
+    DISP_dB:
+    DJNZ LCM_CTR,FINISH_LCM_dB
+    MOV A,#11000000B    ; AC指向第二行第1個字
+    ACALL COMMAND
+    MOV A,SOUND_MAGNI
+    MOV B,#3
+    DIV AB      ; Mapping to dB
+    ADD A,#40   ; Mapping to dB
+    ADD A,B     ; Mapping to dB
+    MOV B,#100
+    DIV AB
+    ADD A,#48
+    ACALL SDATA
+    MOV A,B
+    MOV B,#10
+    DIV AB
+    ADD A,#48
+    ACALL SDATA
+    MOV A,B
+    ADD A,#48
+    ACALL SDATA
+
+    FINISH_LCM_dB:
+
+    RET
+
+COMMAND:  ; 把A傳到LCM Instruction Register
+    MOV PIN_LCM_D,A
+    CLR PIN_LCM_RW      ; RW=0(Write)
+    CLR PIN_LCM_RS      ; RS=0(Instruction Reg.)
+    SETB PIN_LCM_EN     ; E=1(Enable)
+    ACALL DELAY
+    CLR PIN_LCM_EN      ; E=0(Disable)
+    ACALL DELAY
+    RET
+SDATA:  ; 把A傳到LCM Data Register
+    MOV PIN_LCM_D,A
+    CLR PIN_LCM_RW      ; RW=0(Write)
+    SETB PIN_LCM_RS     ; RS=1(Data Reg.)
+    SETB PIN_LCM_EN     ; E=1(Enable)
+    ACALL DELAY
+    CLR PIN_LCM_EN      ; E=0(Disable)
+    ACALL DELAY
+    RET
+
 DELAY:
 	MOV R5,#0FFH
 DELAY1:
@@ -218,3 +353,12 @@ MAGNI_LED_G:
 MAGNI_LED_B:
     DB 11111111B, 11111111B, 11111111B, 11111111B
     DB 11101111B, 11001111B, 10001111B, 00001111B
+
+LCM_FONT_MODE:
+    DB "MODE",0
+LCM_FONT_dB:
+    DB "dB",0
+LCM_FONT_MODE1:
+    DB "1:sensitive ",0
+LCM_FONT_MODE2:
+    DB "2:steady    ",0

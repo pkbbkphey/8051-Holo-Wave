@@ -88,8 +88,7 @@ LOOP:
 DISPLAY_OPTR:
     CLR A
     MOV A,@OPTR
-    ANL A,#01111000B  ; 以OPTR指向的資料的.6~.3作為INDEX
-    RR A
+    ANL A,#00111100B  ; 以OPTR指向的資料的.5~.2作為INDEX
     RR A
     RR A
     MOV B,#2
@@ -110,8 +109,7 @@ DISPLAY_OPTR:
 DISPLAY_NPTR_INNER:
     CLR A
     MOV A,@NPTR
-    ANL A,#01111000B  ; 以NPTR指向的資料的.6~.3作為INDEX
-    RR A
+    ANL A,#00111100B  ; 以NPTR指向的資料的.5~.2作為INDEX
     RR A
     RR A
     MOV B,#2

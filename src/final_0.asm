@@ -42,10 +42,15 @@ TEMP        EQU 02EH
 SWH_MD_R    EQU 02DH.7  ; 紀錄上次 PIN_SWH_MD
 SWH_MD_C    EQU 02DH.6  ; Capture PIN_SWH_MD
 LCM_CTR     EQU R2      ; DRIVE_LCM的呼叫次數
+LED_CTR     EQU R4      ; DRIVE_LED的呼叫次數
+TEMP_BIT    EQU 02DH.5
 ; ==========================
 
 ORG 0000H
 AJMP SETTING
+
+ORG 00BH
+AJMP T0_INT
 
 ; ORG 0023H
 ; AJMP SERIAL_INT
@@ -53,7 +58,7 @@ AJMP SETTING
 ORG 0050H
 SETTING:
     ; --------- SERIAL設定 ----------
-    MOV TMOD,#00100000B ; set timer 1 as mode 2 (8-bit auto reload)
+    MOV TMOD,#00100001B ; set timer 1 as mode 2 (8-bit auto reload)
     MOV TL1,#0FAH   ; timer1作為baud rate generator，
     MOV TH1,#0FAH	; 且 baud rate = 12000
     ORL PCON,#80H   ; SMOD = 1 (timer1頻率除以二)
@@ -70,6 +75,15 @@ SETTING:
     CLR  SM0    ; 串列傳輸 mode 1
 
     ; SETB TI     ; 第一次進入中斷
+
+    ; ----------- T0設定 ------------
+    ; TMOD = #00100001B => set timer 0 as mode 1 (16-bit)
+    MOV TH0,#243
+    MOV TL0,#0
+    CLR TF0
+    SETB ET0
+    SETB EA
+    SETB TR0    ; T0 run
 
     ; ---------- ADC設定 ------------
     ORL P1M0,#10000000B     ; set P1.7 as input only
@@ -128,16 +142,17 @@ SETTING:
 
     ; ---------- 其他設定 -----------
     MOV NPTR,#080H
+    MOV LED_CTR,#0
 
 LOOP:
-    ACALL GET_SOUND_MAGNI
-    ACALL DRIVE_LED
+    ; ACALL GET_SOUND_MAGNI
+    ; ACALL DRIVE_LED
     ACALL DRIVE_LCM
     MOV SBUF,SOUND_MAGNI
-    ; ACALL DELAY
+    ACALL DELAY
     AJMP LOOP
 
-; ===== SOME FUNCTIONS =====
+; ================ SOME FUNCTIONS ================
 GET_SOUND_MAGNI:    ; 讀取麥克風類比數值，並對時間微分，取得聲音強度
     MOV A,ADCH
     MOV B,ADCL
@@ -195,21 +210,15 @@ GET_SOUND_MAGNI:    ; 讀取麥克風類比數值，並對時間微分，取得�
     RET
 
 DRIVE_LED:
-    ; CLR PIN_LED_R
-    ; SETB PIN_LED_B
-    ; SETB PIN_LED_G
-    ; MOV PIN_LED_OUT, SOUND_MAGNI
     MOV B,#16
     MOV A,SOUND_MAGNI
     DIV AB
     MOV TEMP,A
-    ; MOV A,B
-    ; CJNE A,#0,MAG_OV
-    ; SJMP DRIVE_RGB
-    ; MAG_OV:
-    ; MOV TEMP,#7
 
-    DRIVE_RGB:
+    INC LED_CTR
+
+    LED_R:
+    CJNE LED_CTR,#1,LED_G
     CLR PIN_LED_R
     SETB PIN_LED_G
     SETB PIN_LED_B
@@ -217,8 +226,9 @@ DRIVE_LED:
     MOV A,TEMP
     MOVC A,@A+DPTR
     MOV PIN_LED_OUT,A
-    ACALL DELAY
-
+    SJMP FINISH_LED
+    LED_G:
+    CJNE LED_CTR,#2,LED_B
     SETB PIN_LED_R
     CLR PIN_LED_G
     SETB PIN_LED_B
@@ -226,8 +236,8 @@ DRIVE_LED:
     MOV A,TEMP
     MOVC A,@A+DPTR
     MOV PIN_LED_OUT,A
-    ACALL DELAY
-
+    SJMP FINISH_LED
+    LED_B:
     SETB PIN_LED_R
     SETB PIN_LED_G
     CLR PIN_LED_B
@@ -235,7 +245,10 @@ DRIVE_LED:
     MOV A,TEMP
     MOVC A,@A+DPTR
     MOV PIN_LED_OUT,A
-    ACALL DELAY
+
+    MOV LED_CTR,#0
+    
+    FINISH_LED:
 
     RET
 
@@ -336,14 +349,34 @@ DELAY3:
 	DJNZ R5,DELAY1
 	RET
 
-; ===== INTERRUPT FUNCTIONS =====
+; ============== INTERRUPT FUNCTIONS =============
 ; SERIAL_INT:
     ; SETB P3.7
     ; CLR TI
     ; MOV SBUF,SOUND_MAGNI
     ; RETI
 
-; ===== TABLES =====
+T0_INT:
+    PUSH 0E0H
+    PUSH B
+    PUSH DPL
+    PUSH DPH
+    MOV TEMP_BIT,C
+
+    ACALL GET_SOUND_MAGNI
+    ACALL DRIVE_LED
+
+    MOV TH0,#243
+    MOV TL0,#0
+
+    MOV C,TEMP_BIT
+    POP DPH
+    POP DPL
+    POP B
+    POP 0E0H
+    RETI
+
+; ==================== TABLES ====================
 MAGNI_LED_R:
     DB 11111110B, 11111100B, 11111100B, 11111100B
     DB 11111100B, 11111100B, 10111100B, 00111100B

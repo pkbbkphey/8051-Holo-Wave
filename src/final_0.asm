@@ -53,7 +53,7 @@ TEMP_BIT    EQU 02DH.5
 ORG 0000H
 AJMP SETTING
 
-ORG 00BH
+ORG 00BH    ; T0中斷向量
 AJMP T0_INT
 
 ; ================ MAIN FUNCTION =================
@@ -417,11 +417,6 @@ DELAY2:
 	RET
 
 ; ============== INTERRUPT FUNCTIONS =============
-; SERIAL_INT:
-    ; SETB P3.7
-    ; CLR TI
-    ; MOV SBUF,SOUND_MAGNI
-    ; RETI
 
 T0_INT:
     PUSH 0E0H   ; 將主程式會用到的變數以stack暫存

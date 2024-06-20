@@ -27,7 +27,7 @@ PIN_LED_B   EQU P1.0
 PIN_LED_OUT EQU P0
 PIN_ADC     EQU P1.7
 PIN_SWH_MD  EQU P1.3    ; 聲波顯示模式選擇開關
-PIN_SWH_SP EQU P1.4    ; 串列傳輸更新速率選擇
+PIN_SWH_SP  EQU P1.4    ; 串列傳輸更新速率選擇
 PIN_LCM_D   EQU P2
 PIN_LCM_RS  EQU P3.7
 PIN_LCM_RW  EQU P3.6
@@ -56,9 +56,7 @@ AJMP SETTING
 ORG 00BH
 AJMP T0_INT
 
-; ORG 0023H
-; AJMP SERIAL_INT
-
+; ================ MAIN FUNCTION =================
 ORG 0050H
 SETTING:
     ; --------- SERIAL設定 ----------
@@ -68,21 +66,15 @@ SETTING:
     ORL PCON,#80H   ; SMOD = 1 (timer1頻率除以二)
     SETB TR1        ; timer 1 run
 
-    ; SETB ES		; enable串列傳輸中斷
-    ; CLR TI      ; 清空串列傳輸中斷旗標
-    ; CLR RI      ; 清空串列傳輸中斷旗標
-    ; SETB EA
-    ; SETB PS     ; 串列傳輸中斷優先
-
     CLR  SM2    ; 不使用一對多模式
     SETB SM1    ; 串列傳輸 mode 1
     CLR  SM0    ; 串列傳輸 mode 1
 
-    SETB TI     ; 第一次進入中斷
+    SETB TI     ; 觸發第一次進入中斷
 
     ; ----------- T0設定 ------------
     ; TMOD = #00100001B => set timer 0 as mode 1 (16-bit)
-    MOV TH0,#243
+    MOV TH0,#243    ; 進入T0_INT的週期
     MOV TL0,#0
     CLR TF0
     SETB ET0
@@ -91,7 +83,7 @@ SETTING:
 
     ; ---------- ADC設定 ------------
     ORL P1M0,#10000000B     ; set P1.7 as input only
-    ANL P1M1,#01111111B
+    ANL P1M1,#01111111B     ; set P1.7 as input only
 
     MOV ADCTL,#11100111B    ; ADCON SPEED1 SPEED0 ADCI  ADCS CHS2 CHS1 CHS0
     ; ebable ADC
@@ -113,23 +105,23 @@ SETTING:
     MOV A,#1            ; 清除DD RAM
     ACALL COMMAND
 
-    MOV A,#10000000B    ; 將AC指定給DD RAM用，且AC設為0
+    MOV A,#10000000B    ; AC指向第一行第1個字
     ACALL COMMAND
     ACALL DELAY
-    MOV DPTR,#LCM_FONT_MIC
+    MOV DPTR,#LCM_FONT_MIC  ; 在LCM上顯示"MIC:"
     CLR A
     MOVC A,@A+DPTR
-    LCM_LOOP_MODE:
+    LCM_LOOP_MODE:          ; 以迴圈配合TABLE的方式來顯示
     ACALL SDATA
     INC DPTR
     CLR A
     MOVC A,@A+DPTR
-    CJNE A,#0,LCM_LOOP_MODE
+    CJNE A,#0,LCM_LOOP_MODE ; 讀到TABLE中的0為止
 
     MOV A,#11000000B    ; AC指向第二行第1個字
     ACALL COMMAND
     ACALL DELAY
-    MOV DPTR,#LCM_FONT_SSP  ; SERIAL SPEED
+    MOV DPTR,#LCM_FONT_SSP  ; 在LCM上顯示"SSP:" (SERIAL SPEED)
     CLR A
     MOVC A,@A+DPTR
     LCM_LOOP_SSP:
@@ -142,7 +134,7 @@ SETTING:
     MOV A,#11001001B    ; AC指向第二行第10個字
     ACALL COMMAND
     ACALL DELAY
-    MOV DPTR,#LCM_FONT_dB
+    MOV DPTR,#LCM_FONT_dB   ; 在LCM上顯示"[   dB]"
     CLR A
     MOVC A,@A+DPTR
     LCM_LOOP_dB:
@@ -152,7 +144,7 @@ SETTING:
     MOVC A,@A+DPTR
     CJNE A,#0,LCM_LOOP_dB
 
-    MOV LCM_CTR,#2
+    MOV LCM_CTR,#2      ; 第二次再將分貝數顯示到LCM上
 
     MOV C,PIN_SWH_MD
     CPL C               ; 使LCM初次進到DRIVE_LCM會顯示MODE的部分
@@ -163,58 +155,58 @@ SETTING:
     MOV SWH_SP_R,C
 
     ; ---------- 其他設定 -----------
-    MOV NPTR,#080H
-    MOV LED_CTR,#0
-    MOV SERIAL_CTR,#4
+    MOV NPTR,#080H      ; 新資料指標指向聲音Array的第一筆
+    MOV LED_CTR,#0      ; 第一次進到DRIVE_LED先顯示紅色部分
+    MOV SERIAL_CTR,#4   ; 第四次進到SEND_SERIAL才會將資料送出
 
-LOOP:
-    ACALL DRIVE_LCM
-    ACALL SEND_SERIAL
+LOOP:                   ; 主迴圈
+    ACALL DRIVE_LCM     ; 將指撥開關狀態、聲音分貝數更新在LCM上
+    ACALL SEND_SERIAL   ; 將聲音資料以串列傳輸送出
     ACALL DELAY
     AJMP LOOP
 
 ; ================ SOME FUNCTIONS ================
-GET_SOUND_MAGNI:    ; 讀取麥克風類比數值，並對時間微分，取得聲音強度
-    MOV A,ADCH
-    MOV B,ADCL
+GET_SOUND_MAGNI:    ; 讀取麥克風類比訊號，並對時間微分，再取絕對值，即聲音強度
+    MOV A,ADCH  ; 讀取麥克風的類比訊號，ADCH[7:0]為高八位，
+    MOV B,ADCL  ; ADCL[1:0]為低二位 (8051內建ADC為10-bit)
     MOV C,B.1
     RLC A
     MOV C,B.0
-    RLC A       ; 取ADC[7:0] (低八位)
+    RLC A       ; 取ADC[7:0] (低八位) 作為訊號源
     MOV TEMP,A
 
     CLR C
-    SUBB A,MIC_R
+    SUBB A,MIC_R    ; 將這次的訊號值減去上次的訊號值
     MOV SOUND_MAGNI,A
-    JB SOUND_MAGNI.7,NEG_SOUND
+    JB SOUND_MAGNI.7,NEG_SOUND  ; 若為負，則變號
     SJMP RECORD_MIC
     NEG_SOUND:
-    CPL A
+    CPL A           ; 2'complement轉正數
     INC A
     MOV SOUND_MAGNI,A
-    RECORD_MIC:
+    RECORD_MIC:     ; 紀錄上次MIC的值
     MOV A,TEMP
-    MOV MIC_R,A         ; 紀錄上次MIC的值
+    MOV MIC_R,A
 
     MODE_PICK:
-    JB PIN_SWH_MD,MODE2
+    JB PIN_SWH_MD,MODE2 ; 使用者可透過指撥開關選擇是否進行聲音強度後處理
     AJMP ADC_RST        ; 聲音顯示模式1：SOUND_MAGNI為及時的聲音強度
 
     MODE2:              ; 聲音顯示模式2：SOUND_MAGNI為前10次聲音強度最大值
     MOV @NPTR,SOUND_MAGNI   ; 將當前聲音強度放入資料庫中
-    CJNE NPTR,#089H,INC_NPTR
+    CJNE NPTR,#089H,INC_NPTR    ; 改變NPTR的值，使它在#80H~#89H之間循環
     MOV NPTR,#080H
     SJMP FIND_MAX
     INC_NPTR:
     INC NPTR
 
-    FIND_MAX:
+    FIND_MAX:           ; 找出資料記憶體中80H~89H位置的資料最大值
     MOV TEMP,#0         ; TEMP用於紀錄最大值
     MOV OPTR,#080H
     SEARCH_LOOP:
         MOV A,TEMP
         CLR CY
-        SUBB A,@OPTR
+        SUBB A,@OPTR    ; 相減弱為負，則CY=1，反之CY=0
         JB CY,NEW_MAX   ; 若@OPTR大於TEMP，則代表@OPTR是新的最大值
         SJMP NXT_SRCH_LOOP
         NEW_MAX:
@@ -224,31 +216,31 @@ GET_SOUND_MAGNI:    ; 讀取麥克風類比數值，並對時間微分，取得�
     CJNE OPTR,#08AH,SEARCH_LOOP
     MOV SOUND_MAGNI,TEMP    ; 將前10筆資料最大值作為輸出
 
-    ADC_RST:
+    ADC_RST:                ; 觸發ADC採樣，以利下一次計算聲音強度
     ANL ADCTL,#11101111B    ; Clear ADCI
     ORL ADCTL,#00001000B    ; Set ADCS
 
     RET
 
-DRIVE_LED:
+DRIVE_LED:      ; 使用非delay的方式驅動RGB LED
     MOV B,#16
     MOV A,SOUND_MAGNI
     DIV AB
     MOV TEMP,A
 
-    INC LED_CTR
+    INC LED_CTR ; LED_CTR若為1則驅動紅色LED，2則驅動綠色，3則驅動藍色
 
-    LED_R:
+    LED_R:      ; 紅色LED部分
     CJNE LED_CTR,#1,LED_G
-    CLR PIN_LED_R
+    CLR PIN_LED_R   ; Enable紅色LED
     SETB PIN_LED_G
     SETB PIN_LED_B
     MOV DPTR,#MAGNI_LED_R
     MOV A,TEMP
-    MOVC A,@A+DPTR
+    MOVC A,@A+DPTR  ; 以聲音強度作為Index，取LED圖樣table
     MOV PIN_LED_OUT,A
     SJMP FINISH_LED
-    LED_G:
+    LED_G:      ; 綠色LED部分
     CJNE LED_CTR,#2,LED_B
     SETB PIN_LED_R
     CLR PIN_LED_G
@@ -258,7 +250,7 @@ DRIVE_LED:
     MOVC A,@A+DPTR
     MOV PIN_LED_OUT,A
     SJMP FINISH_LED
-    LED_B:
+    LED_B:      ; 藍色LED部分
     SETB PIN_LED_R
     SETB PIN_LED_G
     CLR PIN_LED_B
@@ -267,28 +259,28 @@ DRIVE_LED:
     MOVC A,@A+DPTR
     MOV PIN_LED_OUT,A
 
-    MOV LED_CTR,#0
+    MOV LED_CTR,#0  ; 若LED_CTR已經加到3，則歸零
     
     FINISH_LED:
 
     RET
 
-DRIVE_LCM:
-    DISP_MD:
-    MOV C,PIN_SWH_MD     ; Capture PIN_SWH_MD
+DRIVE_LCM:      ; 驅動LCM顯示指撥開關狀態、聲音分貝數，並在資料沒有變動時跳過更新程序
+    DISP_MD:            ; 顯示"MIC:"後面的選項
+    MOV C,PIN_SWH_MD    ; Capture PIN_SWH_MD
     MOV SWH_MD_C,C
-    JB SWH_MD_C,SWH_MD_IS1      ; 檢查SWH_MD_C與SWH_MD_R使否相同
+    JB SWH_MD_C,SWH_MD_IS1      ; 檢查SWH_MD_C(Captured)與SWH_MD_R(Recorded)使否相同
     SWH_MD_IS0:
     JNB SWH_MD_R,FINISH_LCM_MD
     SJMP SWH_MD_CHANGE
     SWH_MD_IS1:
     JB SWH_MD_R,FINISH_LCM_MD
-    SWH_MD_CHANGE:
+    SWH_MD_CHANGE:      ; 若檢查發現指撥開關狀態改變(Captured與Recorded不同)，則更新螢幕上的資訊
 
-    MOV A,#10000100B  ; AC指向第一行第5個字
+    MOV A,#10000100B    ; AC指向第一行第5個字
     ACALL COMMAND
     JB SWH_MD_C,DISP_M2
-    DISP_M1:
+    DISP_M1:                ; 顯示"sensitive " (代表及時模式)
     MOV DPTR,#LCM_FONT_MIC1
     CLR A
     MOVC A,@A+DPTR
@@ -299,7 +291,7 @@ DRIVE_LCM:
     MOVC A,@A+DPTR
     CJNE A,#0,LCM_LOOP_MODE1
     SJMP FINISH_LCM_MD
-    DISP_M2:
+    DISP_M2:                ; 顯示"steady    " (代表經過取最大值程序的穩定模式)
     MOV DPTR,#LCM_FONT_MIC2
     CLR A
     MOVC A,@A+DPTR
@@ -311,10 +303,10 @@ DRIVE_LCM:
     CJNE A,#0,LCM_LOOP_MODE2
 
     FINISH_LCM_MD:
-    MOV C,SWH_MD_C
+    MOV C,SWH_MD_C          ; 紀錄上次指撥開關的狀態
     MOV SWH_MD_R,C
 
-    DISP_SSP:
+    DISP_SSP:               ; 顯示"SSP"後面的選項
     MOV C,PIN_SWH_SP        ; Capture PIN_SWH_SP
     MOV SWH_SP_C,C
     JB SWH_SP_C,SWH_SP_IS1      ; 檢查SWH_SP_C與SWH_SP_R使否相同
@@ -323,7 +315,7 @@ DRIVE_LCM:
     SJMP SWH_SP_CHANGE
     SWH_SP_IS1:
     JB SWH_SP_R,FINISH_LCM_SP
-    SWH_SP_CHANGE:
+    SWH_SP_CHANGE:          ; 若檢查發現指撥開關狀態改變，則更新螢幕上的資訊
 
     MOV A,#11000100B  ; AC指向第二行第5個字
     ACALL COMMAND
@@ -351,10 +343,10 @@ DRIVE_LCM:
     CJNE A,#0,LCM_LOOP_SP_FAST
 
     FINISH_LCM_SP:
-    MOV C,SWH_SP_C
+    MOV C,SWH_SP_C          ; 紀錄上次指撥開關的狀態
     MOV SWH_SP_R,C
 
-    DISP_dB:
+    DISP_dB:            ; 顯示"[   dB]"中的分貝數值
     DJNZ LCM_CTR,FINISH_LCM_dB
     MOV A,#11001010B    ; AC指向第二行第11個字
     ACALL COMMAND
@@ -364,31 +356,31 @@ DRIVE_LCM:
     ADD A,#40   ; Mapping to dB
     ADD A,B     ; Mapping to dB
     MOV B,#100
-    DIV AB
-    ADD A,#48
+    DIV AB      ; 取出分貝數的百位數
+    ADD A,#48   ; 轉為ASCII CODE
     ACALL SDATA
     MOV A,B
     MOV B,#10
-    DIV AB
-    ADD A,#48
+    DIV AB      ; 取出分貝數的十位數
+    ADD A,#48   ; 轉為ASCII CODE
     ACALL SDATA
-    MOV A,B
-    ADD A,#48
+    MOV A,B     ; 取出分貝數的個位數
+    ADD A,#48   ; 轉為ASCII CODE
     ACALL SDATA
 
     FINISH_LCM_dB:
 
     RET
 
-SEND_SERIAL:
-    JB PIN_SWH_SP,SERIAL_FAST
-    SERIAL_SLOW:
+SEND_SERIAL:    ; 將聲音強度資料以串列傳輸送出
+    JB PIN_SWH_SP,SERIAL_FAST   ; 使用者可透過指撥開關決定傳輸的頻率
+    SERIAL_SLOW:    ; 慢速傳輸模式
     DJNZ SERIAL_CTR,FINISH_SERIAL
     MOV SBUF,SOUND_MAGNI
     MOV SERIAL_CTR,#4
     SJMP FINISH_SERIAL
-    SERIAL_FAST:
-    JNB TI,FINISH_SERIAL
+    SERIAL_FAST:    ; 快速傳輸模式
+    JNB TI,FINISH_SERIAL    ; 若上次的資料尚未傳輸完畢，則跳過這次的傳輸
     CLR TI
     MOV SBUF,SOUND_MAGNI
 
@@ -432,16 +424,16 @@ DELAY2:
     ; RETI
 
 T0_INT:
-    PUSH 0E0H
+    PUSH 0E0H   ; 將主程式會用到的變數以stack暫存
     PUSH B
     PUSH DPL
     PUSH DPH
     MOV TEMP_BIT,C
 
-    ACALL GET_SOUND_MAGNI
-    ACALL DRIVE_LED
+    ACALL GET_SOUND_MAGNI   ; 取得聲音強度資料
+    ACALL DRIVE_LED         ; 將聲音強度以RGB LED視覺化
 
-    MOV TH0,#243
+    MOV TH0,#243    ; 決定多久以後再進入T0_INT
     MOV TL0,#0
 
     MOV C,TEMP_BIT
@@ -452,6 +444,7 @@ T0_INT:
     RETI
 
 ; ==================== TABLES ====================
+; RGB LED的圖樣
 MAGNI_LED_R:
     DB 11111110B, 11111100B, 11111100B, 11111100B
     DB 11111100B, 11111100B, 10111100B, 00111100B
@@ -462,6 +455,7 @@ MAGNI_LED_B:
     DB 11111111B, 11111111B, 11111111B, 11111111B
     DB 11101111B, 11001111B, 10001111B, 00001111B
 
+; 要顯示再LCM上的字串：
 LCM_FONT_MIC:
     DB "MIC:",0
 LCM_FONT_SSP:
